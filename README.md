@@ -11,6 +11,7 @@ trước khi chạy file nhớ tạo môi trường ảo rồi mới chạy
 ```bash
 cd frontend
 npm install
+npm install three
 npm run dev
 ```
 
