@@ -2,6 +2,7 @@ from rest_framework import generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions, status
+from django.shortcuts import get_object_or_404
 from payments.models import OrderItem
 from products.models import Product3D
 from .models import Download
@@ -20,27 +21,23 @@ class SecureDownloadView(APIView):
 
     def get(self, request, product_id):
         user = request.user
-        
-        # Kiểm tra xem user đã có Order dạng 'completed' chứa sản phẩm này chưa
-        has_purchased = OrderItem.objects.filter(
+        product = get_object_or_404(Product3D, id=product_id, is_active=True)
+        is_artist = product.artist_id == user.id
+        has_purchased = product.price <= 0 or OrderItem.objects.filter(
             order__user=user,
             order__status='completed',
-            product_id=product_id
+            product=product,
         ).exists()
 
-        if not has_purchased:
+        if not is_artist and not has_purchased:
             return Response(
-                {'error': 'Bạn chưa mua sản phẩm này hoặc đơn hàng chưa hoàn tất.'},
+                {'error': 'Bạn cần mua sản phẩm này trước khi tải xuống.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        try:
-            product = Product3D.objects.get(id=product_id)
-            if not product.source_file:
-                return Response({'error': 'File nguồn chưa sẵn sàng.'}, status=status.HTTP_404_NOT_FOUND)
+        if not product.source_file:
+            return Response({'error': 'File nguồn chưa sẵn sàng.'}, status=status.HTTP_404_NOT_FOUND)
 
-            Download.objects.create(user=user, product=product)
-            download_url = request.build_absolute_uri(product.source_file.url)
-            return Response({'download_url': download_url})
-        except Product3D.DoesNotExist:
-            return Response({'error': 'Sản phẩm không tồn tại.'}, status=status.HTTP_404_NOT_FOUND)
+        Download.objects.create(user=user, product=product)
+        download_url = request.build_absolute_uri(product.source_file.url)
+        return Response({'download_url': download_url})

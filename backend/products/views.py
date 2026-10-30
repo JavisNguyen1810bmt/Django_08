@@ -1,17 +1,23 @@
-from rest_framework import viewsets, permissions
+from pathlib import PurePosixPath
+
+from django.core.files.base import ContentFile
+from django.utils.text import slugify
+from rest_framework import permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.utils.text import slugify
+
 from .models import Category, Product3D
 from .serializers import CategorySerializer, Product3DSerializer
 
 class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Category.objects.all()
+    queryset = Category.objects.order_by('name', 'id')
     serializer_class = CategorySerializer
     permission_classes = [permissions.AllowAny]
 
 class Product3DViewSet(viewsets.ModelViewSet):
-    queryset = Product3D.objects.filter(is_active=True).order_by('-created_at')
+    queryset = Product3D.objects.filter(is_active=True).select_related(
+        'category', 'artist'
+    ).order_by('-created_at')
     serializer_class = Product3DSerializer
     lookup_field = 'slug'
     search_fields = ['title', 'description', 'artist__username']
@@ -44,7 +50,19 @@ class Product3DViewSet(viewsets.ModelViewSet):
         while Product3D.objects.filter(slug=slug).exists():
             slug = f'{base_slug}-{suffix}'
             suffix += 1
-        serializer.save(artist=self.request.user, slug=slug)
+        source_file = serializer.validated_data.get('source_file')
+        save_data = {'artist': self.request.user, 'slug': slug}
+        if source_file:
+            extension = PurePosixPath(source_file.name).suffix.lower()
+            if extension in {'.glb', '.gltf', '.fbx', '.obj'}:
+                source_file.seek(0)
+                save_data['preview_file'] = ContentFile(
+                    source_file.read(),
+                    name=source_file.name,
+                )
+                source_file.seek(0)
+                save_data['file_format'] = extension[1:].upper()
+        serializer.save(**save_data)
 
     @action(detail=False, methods=['get'], url_path='my')
     def my_products(self, request):

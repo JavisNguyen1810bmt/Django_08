@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { apiRequest, getApiBaseUrl } from './api'
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
+import {
+  apiRequest,
+  buffWalletBalance,
+  downloadProduct,
+  getApiBaseUrl,
+  getWallet,
+  purchaseProduct,
+} from './api'
 import {
   Search, Box, Upload, Users, ShoppingBag, Globe,
   Layers, RefreshCw, Sun, ChevronDown, Sparkles, CheckCircle2,
@@ -8,7 +18,8 @@ import {
   Handshake, Tag, BookOpen, X, Heart, Menu, Lock, Mail, User,
   ArrowRight, ShieldCheck, Minimize2, Grid, Filter, Star, MessageSquare,
   Share2, FileText, Check, LayoutDashboard, Plus, ExternalLink,
-  TrendingUp, Compass, Settings, AlertCircle
+  TrendingUp, Compass, Settings, AlertCircle, Wallet as WalletIcon,
+  Zap, QrCode
 } from 'lucide-react'
 import './styles.css'
 
@@ -25,6 +36,8 @@ const normalizeProduct = (product, index) => ({
   ...product,
   author: product.artist_name || product.artist || product.creator || '3D Creator',
   category: product.category_name || 'Other',
+  priceAmount: Number(product.price || 0),
+  modelUrl: imageUrl(product.model_url || product.preview_file),
   views: Number(product.views || 0).toLocaleString(),
   likes: Number(product.likes || 0),
   polygons: Number(product.polygon_count || 0).toLocaleString(),
@@ -153,20 +166,166 @@ const SAMPLE_MODELS = [
   }
 ]
 
+function AdminBuffModal({ currentUsername, token, onClose, onBalance, showToast }) {
+  const [username, setUsername] = useState(currentUsername)
+  const [amount, setAmount] = useState('50')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await buffWalletBalance({ username: username.trim(), amount }, token)
+      if (result.username === currentUsername) onBalance(result.balance)
+      showToast(`Đã cộng $${Number(result.amount_added).toFixed(2)} vào ví ${result.username}.`)
+      onClose()
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop wallet-modal-backdrop" onClick={onClose}>
+      <section className="wallet-dialog admin-buff-dialog" role="dialog" aria-modal="true" aria-labelledby="buff-modal-title" onClick={(event) => event.stopPropagation()}>
+        <div className="wallet-dialog-header">
+          <div><Zap size={19} /><h3 id="buff-modal-title">Buff tiền ảo (Admin)</h3></div>
+          <button className="modal-close-btn" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
+        </div>
+        <form className="wallet-modal-content" onSubmit={handleSubmit}>
+          <label htmlFor="buff-username">Tên tài khoản</label>
+          <input id="buff-username" value={username} onChange={(event) => setUsername(event.target.value)} required />
+          <label htmlFor="buff-amount">Số tiền cộng (USD)</label>
+          <div className="wallet-quick-amounts">
+            {[50, 100, 500].map((value) => (
+              <button key={value} type="button" className={Number(amount) === value ? 'active' : ''} onClick={() => setAmount(String(value))}>+${value}</button>
+            ))}
+          </div>
+          <input id="buff-amount" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} required />
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <button className="btn-submit-primary" type="submit" disabled={submitting}>
+            {submitting ? 'ĐANG CẬP NHẬT...' : 'CỘNG TIỀN VÀO VÍ'}
+          </button>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function WalletTopUpModal({
+  payment,
+  username,
+  token,
+  onBalance,
+  onClose,
+}) {
+  const [checking, setChecking] = useState(false)
+  const [statusMessage, setStatusMessage] = useState('')
+  const rate = Number(payment.exchangeRate || 25000)
+  const topUpVnd = Math.ceil(Number(payment.shortfall || 0) * rate)
+  const transferContent = `NAPTIEN ${username} ${topUpVnd}`
+  const bank = payment.bank
+  const qrUrl = bank
+    ? `https://vietqr.app/img?acc=68618102007&bank=MBBank&holder=NGUYEN HUU HOANG NAM&store=3dstore&template=compact&showinfo=true${encodeURIComponent(bank.bin)}-${encodeURIComponent(bank.account)}-compact2.png?amount=${topUpVnd}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(bank.account_name)}`
+    : `https://vietqr.app/img?acc=68618102007&bank=MBBank&holder=NGUYEN HUU HOANG NAM&store=3dstore&template=compact&showinfo=true=${encodeURIComponent(transferContent)}`
+
+  const checkBalance = async () => {
+    setChecking(true)
+    setStatusMessage('')
+    try {
+      const wallet = await getWallet(token)
+      onBalance(wallet.balance)
+      if (Number(wallet.balance) >= Number(payment.required_amount)) {
+        setStatusMessage('Số dư đã đủ. Đóng cửa sổ này và bấm MUA NGAY để hoàn tất thanh toán.')
+      } else {
+        setStatusMessage('Chưa ghi nhận tiền vào ví. Việc nạp tiền cần được Admin xác nhận.')
+      }
+    } catch (error) {
+      setStatusMessage(`Không kiểm tra được số dư: ${error.message}`)
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop wallet-modal-backdrop" onClick={onClose}>
+      <section className="wallet-dialog topup-dialog" role="dialog" aria-modal="true" aria-labelledby="topup-modal-title" onClick={(event) => event.stopPropagation()}>
+        <div className="wallet-dialog-header">
+          <div><QrCode size={19} /><h3 id="topup-modal-title">Nạp tiền vào ví</h3></div>
+          <button className="modal-close-btn" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
+        </div>
+        <div className="topup-content">
+          <p className="topup-insufficient">
+            Số dư ví không đủ (Hiện có: <strong>${Number(payment.current_balance).toFixed(2)}</strong>,
+            {' '}Cần: <strong>${Number(payment.required_amount).toFixed(2)}</strong>)
+          </p>
+          <div className="topup-qr-wrap"><img src={qrUrl} alt="Mã QR chuyển khoản nạp tiền ví" /></div>
+          <div className="topup-transfer-details">
+            <h4>Thông tin chuyển khoản</h4>
+            {bank ? (
+              <>
+                <p>Ngân hàng: <strong>{bank.bin}</strong></p>
+                <p>Số tài khoản: <strong>{bank.account}</strong></p>
+                <p>Chủ tài khoản: <strong>{bank.account_name}</strong></p>
+              </>
+            ) : (
+              <p className="form-error">Chưa cấu hình tài khoản nhận tiền. Mã QR hiện chỉ chứa nội dung chuyển khoản, chưa phải QR ngân hàng.</p>
+            )}
+            <p>Số tiền nạp: <strong>{topUpVnd.toLocaleString()} VND</strong> (quy đổi ${Number(payment.shortfall).toFixed(2)} × {rate.toLocaleString()} VND/USD)</p>
+            <p>Nội dung: <strong>{transferContent}</strong></p>
+          </div>
+          <p className="topup-note">Ví chỉ được cộng sau khi giao dịch được Admin xác nhận; quét QR không tự động xác nhận thanh toán.</p>
+          {statusMessage && <p className="topup-status" role="status">{statusMessage}</p>}
+          <div className="topup-actions">
+            <button type="button" className="btn-favorite-secondary" onClick={onClose}>ĐÓNG</button>
+            <button type="button" className="btn-submit-primary" onClick={checkBalance} disabled={checking}>
+              {checking ? 'ĐANG KIỂM TRA...' : 'KIỂM TRA GIAO DỊCH'}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------
 // THREE.JS VIEWPORT & INSPECTOR COMPONENT
 // ---------------------------------------------------------
-function Advanced3DViewer({ height = '450px', envLight = 'studio', showGrid = true }) {
+function applyObjectWireframe(object, enabled) {
+  object.traverse((node) => {
+    if (!node.isMesh || !node.material) return
+    const materials = Array.isArray(node.material) ? node.material : [node.material]
+    materials.forEach((material) => {
+      if ('wireframe' in material) material.wireframe = enabled
+    })
+  })
+}
+
+function Advanced3DViewer({
+  height = '450px',
+  envLight = 'studio',
+  showGrid = true,
+  modelUrl = '',
+  onModelStats,
+}) {
   const mountRef = useRef(null)
   const [wireframe, setWireframe] = useState(false)
   const [rotating, setRotating] = useState(true)
   const [gridVisible, setGridVisible] = useState(showGrid)
+  const [loadError, setLoadError] = useState('')
 
   const wireRef = useRef(wireframe)
+  const loadedModelRef = useRef(null)
   const rotRef = useRef(rotating)
   const envRef = useRef(envLight)
 
   useEffect(() => { wireRef.current = wireframe }, [wireframe])
+  useEffect(() => {
+    if (loadedModelRef.current) applyObjectWireframe(loadedModelRef.current, wireframe)
+  }, [wireframe])
   useEffect(() => { rotRef.current = rotating }, [rotating])
   useEffect(() => { envRef.current = envLight }, [envLight])
 
@@ -177,7 +336,7 @@ function Advanced3DViewer({ height = '450px', envLight = 'studio', showGrid = tr
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0f1015)
 
-    const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.1, 100)
+    const camera = new THREE.PerspectiveCamera(45, mount.clientWidth / mount.clientHeight, 0.1, 1000)
     camera.position.set(0, 1.2, 4.2)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
@@ -203,25 +362,90 @@ function Advanced3DViewer({ height = '450px', envLight = 'studio', showGrid = tr
     gridHelper.position.y = -0.8
     scene.add(gridHelper)
 
-    // 3D Model Group Placeholder
+    // The wrapper remains the rotation pivot for both loaded models and the fallback.
     const group = new THREE.Group()
+    const modelGroup = new THREE.Group()
+    group.add(modelGroup)
 
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1caad9, metalness: 0.8, roughness: 0.2 })
     const metalMat = new THREE.MeshStandardMaterial({ color: 0x30363d, metalness: 0.9, roughness: 0.3 })
     const glowMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff })
 
-    const coreMesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.8, 2), bodyMat)
-    group.add(coreMesh)
+    let ring1
+    let ring2
+    const addFallbackModel = () => {
+      const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.9, 32, 24), bodyMat)
+      modelGroup.add(coreMesh)
+      ring1 = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.04, 16, 100), metalMat)
+      ring1.rotation.x = Math.PI / 3
+      modelGroup.add(ring1)
+      ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.02, 16, 100), glowMat)
+      ring2.rotation.y = Math.PI / 4
+      modelGroup.add(ring2)
+    }
 
-    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.04, 16, 100), metalMat)
-    ring1.rotation.x = Math.PI / 3
-    group.add(ring1)
+    let supportedModelUrl = false
+    let loader
+    if (modelUrl) {
+      try {
+        const extension = new URL(modelUrl, window.location.href).pathname.split('.').pop().toLowerCase()
+        if (extension === 'glb' || extension === 'gltf') loader = new GLTFLoader()
+        else if (extension === 'fbx') loader = new FBXLoader()
+        else if (extension === 'obj') loader = new OBJLoader()
+        supportedModelUrl = Boolean(loader)
+      } catch {
+        supportedModelUrl = false
+      }
+    }
 
-    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.02, 16, 100), glowMat)
-    ring2.rotation.y = Math.PI / 4
-    group.add(ring2)
+    if (!supportedModelUrl) addFallbackModel()
 
     scene.add(group)
+    let loadedModel
+    let disposed = false
+    setLoadError('')
+    if (supportedModelUrl) {
+      loader.load(
+        modelUrl,
+        (result) => {
+          if (disposed) return
+          loadedModel = result.scene || result
+          loadedModelRef.current = loadedModel
+          loadedModel.updateMatrixWorld(true)
+          const bounds = new THREE.Box3().setFromObject(loadedModel)
+          const center = bounds.getCenter(new THREE.Vector3())
+          const size = bounds.getSize(new THREE.Vector3())
+          const largestDimension = Math.max(size.x, size.y, size.z)
+          if (!Number.isFinite(largestDimension) || largestDimension <= 0) {
+            setLoadError('Không thể xác định kích thước của mô hình 3D.')
+            return
+          }
+          const scale = 2.4 / largestDimension
+          loadedModel.scale.setScalar(scale)
+          loadedModel.position.sub(center.multiplyScalar(scale))
+          modelGroup.add(loadedModel)
+          applyObjectWireframe(loadedModel, wireRef.current)
+
+          let polygonCount = 0
+          let vertexCount = 0
+          let meshCount = 0
+          loadedModel.traverse((node) => {
+            if (!node.isMesh || !node.geometry) return
+            const geometry = node.geometry
+            const position = geometry.getAttribute('position')
+            const index = geometry.getIndex()
+            polygonCount += Math.floor((index ? index.count : position?.count || 0) / 3)
+            vertexCount += position?.count || 0
+            meshCount += 1
+          })
+          onModelStats?.({ polygonCount, vertexCount, meshCount })
+        },
+        undefined,
+        (error) => {
+          if (!disposed) setLoadError(`Không tải được mô hình 3D: ${error.message || 'Lỗi tải file.'}`)
+        },
+      )
+    }
 
     // Interactivity
     let isDragging = false
@@ -258,10 +482,9 @@ function Advanced3DViewer({ height = '450px', envLight = 'studio', showGrid = tr
 
       if (rotRef.current && !isDragging) {
         group.rotation.y += 0.006
-        ring1.rotation.z += 0.01
-        ring2.rotation.x += 0.008
+        if (ring1) ring1.rotation.z += 0.01
+        if (ring2) ring2.rotation.x += 0.008
       }
-
       renderer.render(scene, camera)
     }
     animate()
@@ -281,12 +504,23 @@ function Advanced3DViewer({ height = '450px', envLight = 'studio', showGrid = tr
       window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('resize', handleResize)
       if (mount.contains(dom)) mount.removeChild(dom)
+      disposed = true
+      loadedModelRef.current = null
+      scene.traverse((node) => {
+        if (node.geometry) node.geometry.dispose()
+        if (node.material) {
+          const materials = Array.isArray(node.material) ? node.material : [node.material]
+          materials.forEach((material) => material.dispose())
+        }
+      })
+      renderer.dispose()
     }
-  }, [gridVisible])
+  }, [gridVisible, modelUrl, onModelStats])
 
   return (
     <div className="viewer-container" style={{ height }}>
       <div className="viewer-canvas" ref={mountRef} />
+      {loadError && <p className="form-error" role="alert">{loadError}</p>}
       
       {/* Control Overlay */}
       <div className="viewer-toolbar">
@@ -474,11 +708,15 @@ export default function App() {
   const [myProducts, setMyProducts] = useState([])
   const [myOrders, setMyOrders] = useState([])
   const [downloadHistory, setDownloadHistory] = useState([])
+  const [walletBalance, setWalletBalance] = useState('0.00')
+  const [adminBuffOpen, setAdminBuffOpen] = useState(false)
+  const [topUpPayment, setTopUpPayment] = useState(null)
 
   // Liked & selected models
   const [likedModels, setLikedModels] = useState({})
   const [selectedModel, setSelectedModel] = useState(null)
   const [sourceFile, setSourceFile] = useState(null)
+  const [processingPurchase, setProcessingPurchase] = useState(false)
 
   // Upload Form State
   const [uploadData, setUploadData] = useState({
@@ -495,6 +733,17 @@ export default function App() {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3500)
   }, [])
+
+  const updateWalletBalance = useCallback((balance) => {
+    setWalletBalance(balance)
+    setCurrentUser((user) => user ? { ...user, wallet_balance: balance } : user)
+  }, [])
+
+  const refreshWallet = useCallback(async (token = accessToken) => {
+    const wallet = await getWallet(token)
+    updateWalletBalance(wallet.balance)
+    return wallet
+  }, [accessToken, updateWalletBalance])
 
   const toggleLike = (id, e) => {
     e?.stopPropagation()
@@ -553,15 +802,29 @@ export default function App() {
   }, [accessToken])
 
   useEffect(() => {
+    if (!accessToken) {
+      setMyOrders([])
+      setWalletBalance('0.00')
+      return
+    }
+    apiRequest('/payments/my-orders/', { token: accessToken })
+      .then((response) => setMyOrders(response.results || response))
+      .catch((error) => showToast(`Không tải được lịch sử mua hàng: ${error.message}`, 'error'))
+  }, [accessToken, showToast])
+
+  useEffect(() => {
+    if (!accessToken) return
+    refreshWallet().catch((error) => showToast(`Không tải được ví tiền: ${error.message}`, 'error'))
+  }, [accessToken, refreshWallet, showToast])
+
+  useEffect(() => {
     if (currentTab !== 'dashboard' || !accessToken) return
     Promise.all([
       apiRequest('/models/my/', { token: accessToken }),
-      apiRequest('/payments/my-orders/', { token: accessToken }),
       apiRequest('/downloads/history/', { token: accessToken }),
     ])
-      .then(([products, orders, downloads]) => {
+      .then(([products, downloads]) => {
         setMyProducts((products.results || products).map(normalizeProduct))
-        setMyOrders(orders.results || orders)
         setDownloadHistory(downloads.results || downloads)
       })
       .catch((error) => showToast(`Không tải được dữ liệu dashboard: ${error.message}`, 'error'))
@@ -575,6 +838,7 @@ export default function App() {
     setAccessToken(tokens.access)
     const user = await apiRequest('/auth/me/', { token: tokens.access })
     setCurrentUser(user)
+    setWalletBalance(user.wallet_balance || '0.00')
   }
 
   const handleLogout = () => {
@@ -582,6 +846,7 @@ export default function App() {
     localStorage.removeItem('refreshToken')
     setAccessToken(null)
     setCurrentUser(null)
+    setWalletBalance('0.00')
     setCurrentTab('explore')
     showToast('Đã đăng xuất.')
   }
@@ -631,28 +896,81 @@ export default function App() {
     }
   }
 
-  const handleDownload = async () => {
+  const handlePurchase = async () => {
     if (!accessToken) {
-      showToast('Đăng nhập để thanh toán và tải mô hình.', 'error')
+      showToast('Vui lòng đăng nhập để mua mô hình.', 'error')
       setAuthModal({ open: true, mode: 'login' })
       return
     }
+    if (!selectedModel || processingPurchase) return
+    setProcessingPurchase(true)
+    try {
+      const order = await purchaseProduct(selectedModel.id, accessToken)
+      setMyOrders((orders) => [order, ...orders.filter((item) => item.id !== order.id)])
+      updateWalletBalance(order.wallet_balance)
+      showToast('Thanh toán bằng ví thành công!')
+    } catch (error) {
+      if (error.status === 402 && error.data?.code === 'insufficient_balance') {
+        try {
+          const wallet = await refreshWallet(accessToken)
+          setTopUpPayment({
+            ...error.data,
+            current_balance: wallet.balance,
+            bank: wallet.bank,
+            exchangeRate: wallet.exchange_rate,
+          })
+        } catch (walletError) {
+          showToast(`Không tải được thông tin nạp ví: ${walletError.message}`, 'error')
+        }
+        return
+      }
+      showToast(`Không thể mua mô hình: ${error.message}`, 'error')
+    } finally {
+      setProcessingPurchase(false)
+    }
+  }
+
+  const handleDownload = async () => {
+    if (!accessToken) {
+      showToast('Vui lòng đăng nhập để tải mô hình.', 'error')
+      setAuthModal({ open: true, mode: 'login' })
+      return
+    }
+    if (!selectedModel) return
     const downloadTab = window.open('about:blank', '_blank')
     try {
-      await apiRequest('/payments/checkout/', {
-        method: 'POST',
-        token: accessToken,
-        body: JSON.stringify({ product_ids: [selectedModel.id] }),
-      })
-      const response = await apiRequest(`/downloads/${selectedModel.id}/`, { token: accessToken })
+      const response = await downloadProduct(selectedModel.id, accessToken)
       if (downloadTab) downloadTab.location.href = response.download_url
       else window.location.assign(response.download_url)
-      showToast('Đơn hàng hoàn tất. Đang mở file tải xuống.')
+      showToast('Đang mở file tải xuống.')
     } catch (error) {
       downloadTab?.close()
       showToast(`Không thể tải mô hình: ${error.message}`, 'error')
     }
   }
+
+  const handleViewerStats = useCallback((stats) => {
+    setSelectedModel((model) => model ? {
+      ...model,
+      polygons: `${stats.polygonCount.toLocaleString()} (${stats.meshCount.toLocaleString()} Meshes)`,
+      vertices: stats.vertexCount.toLocaleString(),
+    } : model)
+  }, [])
+
+  const selectedIsPurchased = Boolean(selectedModel && myOrders.some((order) =>
+    order.status === 'completed' &&
+    order.items?.some((item) => Number(item.product) === Number(selectedModel.id))
+  ))
+  const selectedCanDownload = Boolean(selectedModel && (
+    selectedModel.priceAmount <= 0 ||
+    selectedIsPurchased ||
+    currentUser?.username === selectedModel.author
+  ))
+  const isAdmin = Boolean(
+    currentUser?.is_staff ||
+    currentUser?.is_superuser ||
+    currentUser?.username === 'admin'
+  )
 
   return (
     <div className="app-root">
@@ -717,9 +1035,17 @@ export default function App() {
           {/* USER ACTIONS */}
           <div className="nav-actions">
             {currentUser ? (
-              <button className="btn-text" onClick={handleLogout}>
-                {currentUser.username} · Đăng xuất
-              </button>
+              <>
+                <span className="wallet-balance"><WalletIcon size={15} /> Số dư: ${Number(walletBalance).toFixed(2)}</span>
+                {isAdmin && (
+                  <button className="btn-admin-buff" onClick={() => setAdminBuffOpen(true)}>
+                    <Zap size={14} /> Buff Tiền (Admin)
+                  </button>
+                )}
+                <button className="btn-text" onClick={handleLogout}>
+                  {currentUser.username} · Đăng xuất
+                </button>
+              </>
             ) : (
               <button className="btn-text" onClick={() => setAuthModal({ open: true, mode: 'login' })}>
                 Đăng Nhập
@@ -828,6 +1154,7 @@ export default function App() {
 
                     <div className="card-info">
                       <h4 className="title">{item.title}</h4>
+                      <p className="desc-short">{item.category}</p>
                       <div className="author">
                         <img src={item.avatar} alt={item.author} />
                         <span>{item.author}</span>
@@ -893,6 +1220,7 @@ export default function App() {
                     <h4 className="title">{item.title}</h4>
                     <p className="desc-short">{item.description}</p>
                     <div className="tech-tags">
+                      <span>{item.category}</span>
                       <span>{item.polygons} Polys</span>
                       <span>{item.textures}</span>
                     </div>
@@ -1103,7 +1431,7 @@ export default function App() {
             <div className="detail-header">
               <div>
                 <h3>{selectedModel.title}</h3>
-                <p className="sub-author">Đăng bởi <strong>{selectedModel.author}</strong> &bull; Danh mục: {selectedModel.category}</p>
+                <p className="sub-author">Đăng bởi <strong>{selectedModel.author}</strong> &bull; Danh mục: {selectedModel.category || 'Other'}</p>
               </div>
               <button className="modal-close-btn" onClick={() => setSelectedModel(null)}><X size={20} /></button>
             </div>
@@ -1111,7 +1439,11 @@ export default function App() {
             <div className="detail-body-grid">
               {/* 3D Interactive Viewport */}
               <div className="detail-viewport-col">
-                <Advanced3DViewer height="100%" />
+                <Advanced3DViewer
+                  height="100%"
+                  modelUrl={selectedModel.modelUrl}
+                  onModelStats={handleViewerStats}
+                />
               </div>
 
               {/* Specs and Download Side Panel */}
@@ -1148,9 +1480,12 @@ export default function App() {
                 <div className="action-button-group">
                   <button
                     className="btn-download-primary"
-                    onClick={handleDownload}
+                    onClick={selectedCanDownload ? handleDownload : handlePurchase}
+                    disabled={processingPurchase}
                   >
-                    <Download size={16} /> TẢI MẪU 3D NGAY
+                    {!selectedCanDownload
+                      ? <><ShoppingCart size={16} /> {processingPurchase ? 'ĐANG THANH TOÁN...' : `MUA NGAY (${selectedModel.price})`}</>
+                      : <><Download size={16} /> TẢI MẪU 3D NGAY</>}
                   </button>
 
                   <button
@@ -1175,6 +1510,25 @@ export default function App() {
         onAuthenticated={handleAuthenticated}
         showToast={showToast}
       />
+
+      {adminBuffOpen && (
+        <AdminBuffModal
+          currentUsername={currentUser?.username || ''}
+          token={accessToken}
+          onClose={() => setAdminBuffOpen(false)}
+          onBalance={updateWalletBalance}
+          showToast={showToast}
+        />
+      )}
+      {topUpPayment && currentUser && (
+        <WalletTopUpModal
+          payment={topUpPayment}
+          username={currentUser.username}
+          token={accessToken}
+          onBalance={updateWalletBalance}
+          onClose={() => setTopUpPayment(null)}
+        />
+      )}
 
       {/* FOOTER */}
       <footer className="footer">

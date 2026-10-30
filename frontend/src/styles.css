@@ -189,6 +189,37 @@ body {
   gap: 12px;
 }
 
+.wallet-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  color: #9ce7c1;
+  background: rgba(48, 196, 125, 0.1);
+  border: 1px solid rgba(48, 196, 125, 0.25);
+  border-radius: 7px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.btn-admin-buff {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  color: #201500;
+  background: #ffc247;
+  border: 0;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn-admin-buff:hover { background: #ffd477; }
+
 .btn-text {
   background: none;
   border: none;
@@ -846,6 +877,141 @@ body {
   justify-content: center;
 }
 
+.wallet-modal-backdrop {
+  z-index: 11000;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.wallet-dialog {
+  width: min(100%, 470px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  color: var(--text-main);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+}
+
+.wallet-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wallet-dialog-header > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent);
+}
+
+.wallet-dialog-header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 17px;
+}
+
+.wallet-modal-content,
+.topup-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+}
+
+.wallet-modal-content label {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wallet-modal-content input {
+  width: 100%;
+  padding: 11px 12px;
+  color: #fff;
+  background: #0f1015;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.wallet-modal-content input:focus { border-color: var(--accent); }
+
+.wallet-quick-amounts {
+  display: flex;
+  gap: 8px;
+}
+
+.wallet-quick-amounts button {
+  flex: 1;
+  padding: 8px;
+  color: var(--text-muted);
+  background: #0f1015;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.wallet-quick-amounts button.active,
+.wallet-quick-amounts button:hover {
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.topup-dialog { width: min(100%, 540px); }
+
+.topup-content { gap: 14px; }
+
+.topup-insufficient {
+  margin: 0;
+  color: #ffd477;
+  line-height: 1.6;
+}
+
+.topup-qr-wrap {
+  align-self: center;
+  padding: 10px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.topup-qr-wrap img {
+  display: block;
+  width: 220px;
+  height: 220px;
+  object-fit: contain;
+}
+
+.topup-transfer-details {
+  padding: 14px;
+  background: #0f1015;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.topup-transfer-details h4,
+.topup-transfer-details p { margin: 0 0 8px; }
+.topup-transfer-details h4 { color: #fff; }
+.topup-transfer-details p { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.topup-transfer-details p:last-child { margin-bottom: 0; }
+.topup-transfer-details strong { color: #fff; }
+.topup-note,
+.topup-status { margin: 0; font-size: 12px; line-height: 1.5; }
+.topup-note { color: var(--text-muted); }
+.topup-status { color: #9ce7c1; }
+
+.topup-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.topup-actions > button { flex: 1; }
+
 .asset-detail-dialog {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -1178,4 +1344,11 @@ body {
   .asset-grid { grid-template-columns: 1fr; }
   .analytics-grid { grid-template-columns: 1fr; }
   .footer-container { grid-template-columns: 1fr 1fr; }
+  .navbar-container { padding: 0 12px; gap: 8px; }
+  .nav-actions { gap: 6px; }
+  .wallet-balance { padding: 6px; font-size: 10px; }
+  .btn-admin-buff { padding: 7px; font-size: 0; }
+  .btn-admin-buff svg { width: 16px; height: 16px; }
+  .nav-actions .btn-text { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+  .nav-actions .btn-upload { display: none; }
 }

@@ -53,3 +53,20 @@ class DownloadApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('download_url', response.data)
         self.assertTrue(Download.objects.filter(user=self.user, product=self.product).exists())
+
+    def test_product_artist_can_download_paid_product_without_purchasing(self):
+        self.client.force_authenticate(user=self.other_user)
+
+        response = self.client.get(f'/api/downloads/{self.product.id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(Download.objects.filter(user=self.other_user, product=self.product).exists())
+
+    def test_free_product_can_be_downloaded_without_purchase(self):
+        self.product.price = Decimal('0.00')
+        self.product.save(update_fields=['price'])
+
+        response = self.client.get(f'/api/downloads/{self.product.id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(Download.objects.filter(user=self.user, product=self.product).exists())

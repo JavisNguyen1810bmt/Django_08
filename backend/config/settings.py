@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import timedelta
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = "django-insecure-3dlibrary-local-development-key-change-before-deploying"
@@ -25,7 +26,7 @@ INSTALLED_APPS = [
     # Các App dự án
     "accounts",
     "products",
-    "payments",
+    "payments.apps.PaymentsConfig",
     "downloads",
 ]
 
@@ -75,6 +76,11 @@ USE_TZ = True
 STATIC_URL = "static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+WALLET_USD_TO_VND = os.getenv("WALLET_USD_TO_VND", "25000")
+WALLET_BANK_BIN = os.getenv("WALLET_BANK_BIN", "")
+WALLET_BANK_ACCOUNT = os.getenv("WALLET_BANK_ACCOUNT", "")
+WALLET_BANK_ACCOUNT_NAME = os.getenv("WALLET_BANK_ACCOUNT_NAME", "")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
