@@ -1,4 +1,8 @@
-
+31/10: 
+Hoàn thành cập nhập thanh toán 
+Hoàn thành thay đổi image theo file 3d cập nhập lên 
+Còn lỗi thêm danh mục trong phần đăng tải ( yêu cầu tạo db lưu danh mục )
+Thêm db lưu thông tin giao dịch và thông tin người mua và bán
 
 ## nhớ cài mấy này nha
 
