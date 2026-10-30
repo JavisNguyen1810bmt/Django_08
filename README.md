@@ -32,3 +32,6 @@ python manage.py runserver
 Các luồng API chính gồm đăng ký/đăng nhập và hồ sơ tại `/api/auth/`, danh mục và mô hình tại `/api/categories/` và `/api/models/`, tải mô hình lên khi đăng nhập, checkout/lịch sử đơn hàng tại `/api/payments/`, và tải xuống/lịch sử tải tại `/api/downloads/`. Danh sách mô hình hỗ trợ tìm kiếm theo `search`, lọc theo `category` (slug) và `price=free|paid`.
 
 Tạo tài khoản quản trị bằng `python manage.py createsuperuser`. Các file trong `MEDIA_ROOT` chỉ nên được phục vụ trực tiếp trong môi trường phát triển; cần cấu hình storage riêng trước khi triển khai.
+
+
+ngu som di em roi ngay mai se khac
